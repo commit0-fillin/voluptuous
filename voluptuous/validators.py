@@ -36,7 +36,13 @@ def truth(f: typing.Callable) -> typing.Callable:
     >>> with raises(MultipleInvalid, 'not a valid value'):
     ...   validate('/notavaliddir')
     """
-    pass
+    @wraps(f)
+    def wrapper(v):
+        t = f(v)
+        if not t:
+            raise ValueError
+        return v
+    return wrapper
 
 class Coerce(object):
     """Coerce a value to a type.
@@ -100,7 +106,7 @@ def IsTrue(v):
     ... except MultipleInvalid as e:
     ...   assert isinstance(e.errors[0], TrueInvalid)
     """
-    pass
+    return bool(v)
 
 @message('value was not false', cls=FalseInvalid)
 def IsFalse(v):
@@ -119,7 +125,7 @@ def IsFalse(v):
     ... except MultipleInvalid as e:
     ...   assert isinstance(e.errors[0], FalseInvalid)
     """
-    pass
+    return not bool(v)
 
 @message('expected boolean', cls=BooleanInvalid)
 def Boolean(v):
@@ -142,7 +148,14 @@ def Boolean(v):
     ... except MultipleInvalid as e:
     ...   assert isinstance(e.errors[0], BooleanInvalid)
     """
-    pass
+    if isinstance(v, str):
+        v = v.lower()
+        if v in ('1', 'true', 'yes', 'on', 'enable'):
+            return True
+        if v in ('0', 'false', 'no', 'off', 'disable'):
+            return False
+        raise ValueError
+    return bool(v)
 
 class _WithSubValidators(object):
     """Base class for validators that use sub-validators.
@@ -309,7 +322,16 @@ def Email(v):
     >>> s('t@x.com')
     't@x.com'
     """
-    pass
+    if not isinstance(v, str):
+        raise ValueError
+    if '@' not in v:
+        raise ValueError
+    user, domain = v.rsplit('@', 1)
+    if not USER_REGEX.match(user):
+        raise ValueError
+    if not DOMAIN_REGEX.match(domain):
+        raise ValueError
+    return v
 
 @message('expected a fully qualified domain name URL', cls=UrlInvalid)
 def FqdnUrl(v):
@@ -321,7 +343,14 @@ def FqdnUrl(v):
     >>> s('http://w3.org')
     'http://w3.org'
     """
-    pass
+    if not isinstance(v, str):
+        raise ValueError
+    parsed = urlparse.urlparse(v)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError
+    if parsed.netloc == 'localhost':
+        raise ValueError
+    return v
 
 @message('expected a URL', cls=UrlInvalid)
 def Url(v):
@@ -333,7 +362,12 @@ def Url(v):
     >>> s('http://w3.org')
     'http://w3.org'
     """
-    pass
+    if not isinstance(v, str):
+        raise ValueError
+    parsed = urlparse.urlparse(v)
+    if not parsed.scheme or not parsed.netloc:
+        raise ValueError
+    return v
 
 @message('Not a file', cls=FileInvalid)
 @truth
@@ -347,7 +381,7 @@ def IsFile(v):
     >>> with raises(FileInvalid, 'Not a file'):
     ...   IsFile()(None)
     """
-    pass
+    return os.path.isfile(v)
 
 @message('Not a directory', cls=DirInvalid)
 @truth
@@ -359,7 +393,7 @@ def IsDir(v):
     >>> with raises(DirInvalid, 'Not a directory'):
     ...   IsDir()(None)
     """
-    pass
+    return os.path.isdir(v)
 
 @message('path does not exist', cls=PathInvalid)
 @truth
@@ -373,7 +407,7 @@ def PathExists(v):
     >>> with raises(PathInvalid, 'Not a Path'):
     ...   PathExists()(None)
     """
-    pass
+    return os.path.exists(v)
 
 def Maybe(validator: Schemable, msg: typing.Optional[str]=None):
     """Validate that the object matches given validator or is None.
@@ -388,7 +422,13 @@ def Maybe(validator: Schemable, msg: typing.Optional[str]=None):
     ...  s("string")
 
     """
-    pass
+    schema = Schema(validator)
+    @wraps(validator)
+    def f(v):
+        if v is None:
+            return v
+        return schema(v)
+    return f
 
 class Range(object):
     """Limit a value to a range.
@@ -435,7 +475,7 @@ class Range(object):
             raise RangeInvalid(self.msg or 'invalid value or type (must have a partial ordering)')
 
     def __repr__(self):
-        return 'Range(min=%r, max=%r, min_included=%r, max_included=%r, msg=%r)' % (self.min, self.max, self.min_included, self.max_included, self.msg)
+        return f'Range(min={self.min!r}, max={self.max!r}, min_included={self.min_included!r}, max_included={self.max_included!r}, msg={self.msg!r})'
 
 class Clamp(object):
     """Clamp a value to a range.
@@ -467,7 +507,7 @@ class Clamp(object):
             raise RangeInvalid(self.msg or 'invalid value or type (must have a partial ordering)')
 
     def __repr__(self):
-        return 'Clamp(min=%s, max=%s)' % (self.min, self.max)
+        return f'Clamp(min={self.min!r}, max={self.max!r})'
 
 class Length(object):
     """The length of a value must be in a certain range."""
@@ -658,11 +698,11 @@ class Unique(object):
         try:
             set_v = set(v)
         except TypeError as e:
-            raise TypeInvalid(self.msg or 'contains unhashable elements: {0}'.format(e))
+            raise TypeInvalid(self.msg or f'contains unhashable elements: {e}')
         if len(set_v) != len(v):
             seen = set()
-            dupes = list(set((x for x in v if x in seen or seen.add(x))))
-            raise Invalid(self.msg or 'contains duplicate items: {0}'.format(dupes))
+            dupes = list({x for x in v if x in seen or seen.add(x)})
+            raise Invalid(self.msg or f'contains duplicate items: {dupes}')
         return v
 
     def __repr__(self):
@@ -795,7 +835,20 @@ class Number(object):
         :param number:
         :return: tuple(precision, scale, decimal_number)
         """
-        pass
+        try:
+            decimal_num = Decimal(str(number))
+        except InvalidOperation:
+            raise Invalid(self.msg or 'Value must be a valid Decimal')
+
+        sign, digits, exponent = decimal_num.as_tuple()
+        if exponent >= 0:
+            precision = len(digits) + exponent
+            scale = 0
+        else:
+            precision = len(digits)
+            scale = -exponent
+
+        return precision, scale, decimal_num
 
 class SomeOf(_WithSubValidators):
     """Value must pass at least some validations, determined by the given parameter.
