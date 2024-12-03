@@ -12,7 +12,7 @@ def Lower(v: str) -> str:
     >>> s('HI')
     'hi'
     """
-    pass
+    return v.lower()
 
 def Upper(v: str) -> str:
     """Transform a string to upper case.
@@ -21,7 +21,7 @@ def Upper(v: str) -> str:
     >>> s('hi')
     'HI'
     """
-    pass
+    return v.upper()
 
 def Capitalize(v: str) -> str:
     """Capitalise a string.
@@ -30,7 +30,7 @@ def Capitalize(v: str) -> str:
     >>> s('hello world')
     'Hello world'
     """
-    pass
+    return v.capitalize()
 
 def Title(v: str) -> str:
     """Title case a string.
@@ -39,7 +39,7 @@ def Title(v: str) -> str:
     >>> s('hello world')
     'Hello World'
     """
-    pass
+    return v.title()
 
 def Strip(v: str) -> str:
     """Strip whitespace from a string.
@@ -48,7 +48,7 @@ def Strip(v: str) -> str:
     >>> s('  hello world  ')
     'hello world'
     """
-    pass
+    return v.strip()
 
 class DefaultTo(object):
     """Sets a value to default_value if none provided.
