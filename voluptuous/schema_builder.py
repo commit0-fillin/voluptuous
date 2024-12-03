@@ -26,7 +26,7 @@ DefaultFactory = typing.Union[Undefined, typing.Callable[[], typing.Any]]
 
 def Extra(_) -> None:
     """Allow keys in the data that are not present in the schema."""
-    pass
+    return lambda _: True
 extra = Extra
 primitive_types = (bool, bytes, int, str, float, complex)
 Schemable = typing.Union['Schema', 'Object', collections.abc.Mapping, list, tuple, frozenset, set, bool, bytes, int, str, float, complex, type, object, dict, None, typing.Callable]
@@ -102,7 +102,16 @@ class Schema(object):
 
         Note: only very basic inference is supported.
         """
-        pass
+        if isinstance(data, dict):
+            return cls({k: cls.infer(v) for k, v in data.items()})
+        elif isinstance(data, list):
+            return [cls.infer(data[0])] if data else list
+        elif isinstance(data, tuple):
+            return tuple(cls.infer(item) for item in data)
+        elif isinstance(data, set):
+            return {cls.infer(next(iter(data)))} if data else set
+        else:
+            return type(data)
 
     def __eq__(self, other):
         if not isinstance(other, Schema):
@@ -129,7 +138,35 @@ class Schema(object):
 
     def _compile_mapping(self, schema, invalid_msg=None):
         """Create validator for given mapping."""
-        pass
+        invalid_msg = invalid_msg or 'mapping value'
+
+        def validate_mapping(path, iterable, out):
+            if not isinstance(iterable, collections.abc.Mapping):
+                raise er.DictInvalid(invalid_msg)
+
+            for key, value in iterable.items():
+                schema_key = key
+                if key not in schema:
+                    if isinstance(key, str):
+                        schema_key = next((k for k in schema if isinstance(k, str) and k.lower() == key.lower()), None)
+                    if schema_key is None:
+                        if self.extra == PREVENT_EXTRA:
+                            raise er.Invalid(f'extra keys not allowed @ data[{key!r}]')
+                        if self.extra == REMOVE_EXTRA:
+                            continue
+                try:
+                    out[key] = schema[schema_key](path + [key], value)
+                except er.Invalid as e:
+                    raise er.MultipleInvalid([e])
+
+            if self.required:
+                for key in schema:
+                    if isinstance(key, Required) and key not in iterable:
+                        raise er.RequiredFieldInvalid(f'required key not provided @ data[{key!r}]')
+
+            return out
+
+        return validate_mapping
 
     def _compile_object(self, schema):
         """Validate an object.
@@ -149,7 +186,24 @@ class Schema(object):
             ...   validate(Structure(one='three'))
 
         """
-        pass
+        def validate_object(path, data):
+            if not isinstance(data, schema.cls):
+                raise er.ObjectInvalid('expected {} but got {}'.format(schema.cls.__name__, type(data).__name__))
+            
+            errors = []
+            for key, validator in schema.items():
+                if hasattr(data, key):
+                    try:
+                        setattr(data, key, validator(getattr(data, key)))
+                    except er.Invalid as e:
+                        errors.append(e)
+            
+            if errors:
+                raise er.MultipleInvalid(errors)
+            
+            return data
+
+        return validate_object
 
     def _compile_dict(self, schema):
         """Validate a dictionary.
