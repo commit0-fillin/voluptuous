@@ -38,7 +38,9 @@ class MultipleInvalid(Invalid):
         return 'MultipleInvalid(%r)' % self.errors
 
     def __str__(self) -> str:
-        return str(self.errors[0])
+        if not self.errors:
+            return "No errors"
+        return '\n'.join(str(error) for error in self.errors)
 
 class RequiredFieldInvalid(Invalid):
     """Required field was missing."""
